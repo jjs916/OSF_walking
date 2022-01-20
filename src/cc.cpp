@@ -447,79 +447,7 @@ void CustomController::computeSlow()
         rd_.torque_desired = Total_torque;
     }
     else if (rd_.tc_.mode == 12){
-        WBC::SetContact(rd_, 1, 1);
-        F_contact.resize(rd_.J_C.rows());
 
-        if (task_init)
-        {
-            rd_.link_[Upper_Body].rot_desired = Matrix3d::Identity();
-            
-            cout << "NEW!" << endl;
-            task_number = 6 + 6 + 3;
-            f_star.resize(task_number);
-            f_star.setZero();
-            
-            rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
-            rd_.J_task.setZero();
-            task_time1 = 3.0;
-
-            for (int i = 0; i < 3; ++i)
-            {
-                //simulation-mosf
-                Kp_com(i) = 90.0;
-                Kd_com(i) = 5.0; //40 60 100
-                Kp_com_rot(i) = 200.0;
-                Kd_com_rot(i) = 1.0;
-                Kp_ub(i) = 50.0;
-                Kd_ub(i) = 1.0;
-                Kp_hand(i) = 100.0;
-                Kd_hand(i) = 5.0;
-                Kp_hand_rot(i) = 100.0;
-                Kd_hand_rot(i) = 5.0;
-                Kp_foot(i) = 400.0;
-                Kd_foot(i) = 40.0;
-                Kp_foot_rot(i) = 100.0;
-                Kd_foot_rot(i) = 5.0;
-            }
-
-            rd_.link_[Right_Foot].SetGain(Kp_foot(0), Kd_foot(0), 0.0, Kp_foot_rot(0), Kd_foot_rot(0), 0.0);
-            rd_.link_[Left_Foot].SetGain(Kp_foot(0), Kd_foot(0), 0.0, Kp_foot_rot(0), Kd_foot_rot(0), 0.0);
-            rd_.link_[Right_Hand].SetGain(Kp_hand(0), Kd_hand(0), 0.0, Kp_hand_rot(0), Kd_hand_rot(0), 0.0);
-            rd_.link_[Left_Hand].SetGain(Kp_hand(0), Kd_hand(0), 0.0, Kp_hand_rot(0), Kd_hand_rot(0), 0.0);
-            rd_.link_[Pelvis].SetGain(Kp_com(0), Kd_com(0), 0.0, Kp_com_rot(0), Kd_com_rot(0), 0.0);
-            rd_.link_[Upper_Body].SetGain(0.0, 0.0, 0.0, Kp_ub(0), Kd_ub(0), 0.0);
-            rd_.link_[COM_id].SetGain(Kp_com(0), Kd_com(0), 0.0, Kp_com_rot(0), Kd_com_rot(0), 0.0);
-
-            RF_init = rd_.link_[Right_Foot].xpos - rd_.link_[Pelvis].xpos;
-            LF_init = rd_.link_[Left_Foot].xpos - rd_.link_[Pelvis].xpos;
-
-            rd_.link_[Right_Foot].x_desired = RF_init;//
-            rd_.link_[Left_Foot].x_desired = LF_init;//
-            rd_.link_[Right_Foot].x_desired(0) = RF_init(0) + rd_.tc_.l_x;//
-            rd_.link_[Right_Foot].x_desired(1) = RF_init(1) + rd_.tc_.l_y;//               //rd_.link_[Pelvis].xpos(1) + tc.l_y;//
-            rd_.link_[Right_Foot].x_desired(2) = RF_init(2) + rd_.tc_.l_z;//
-            rd_.link_[Left_Foot].x_desired(0) = LF_init(0) + rd_.tc_.l_x;//
-            rd_.link_[Left_Foot].x_desired(1) = LF_init(1) + rd_.tc_.l_y;//               //rd_.link_[Pelvis].xpos(1) + tc.l_y;//
-            rd_.link_[Left_Foot].x_desired(2) = LF_init(2) + rd_.tc_.l_z;//
-            rd_.link_[Right_Foot].rot_desired = Matrix3d::Identity();
-            rd_.link_[Left_Foot].rot_desired = Matrix3d::Identity();
-
-            task_init = false;
-        }
-
-        rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Right_Foot].Jac();
-        rd_.J_task.block(6, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Left_Foot].Jac();
-        rd_.J_task.block(12, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
-
-        F_contact.setZero();
-        F_contact(2) = -rd_.total_mass_*9.81/10.0;
-        F_contact(8) = -rd_.total_mass_*9.81/10.0;
-
-        Gravity_torque = WBC::Vgravitytoruqe(rd_);
-        Task_torque = WBC::newtasktorque(rd_, f_star, motor_inertia, motor_inertia_inv, F_contact);
-
-        Total_torque = Gravity_torque + Task_torque;
-        rd_.torque_desired = Total_torque;
     }
     else if (rd_.tc_.mode == 13)
     {
