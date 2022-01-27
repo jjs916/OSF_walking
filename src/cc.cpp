@@ -130,6 +130,11 @@ CustomController::CustomController(RobotData &rd) : rd_(rd) //, wbc_(dc.wbc_)
         10.0, 10.0, 10.0, 10.0, 2.5, 2.0, 2.0, 2.0;
 
     file[0].open(FILE_NAMES[5].c_str());
+    file[1].open(FILE_NAMES[4].c_str());
+
+    step_error_before.setZero();
+    step_error_after.setZero();
+    step_error_comp.setZero();
 }
 
 Eigen::VectorQd CustomController::getControl()
@@ -302,7 +307,7 @@ void CustomController::computeSlow()
         fc_ratio = 1.0;
         
         Gravity_torque = WBC::GravityCompensationTorque(rd_);
-        Task_torque = WBC::TaskControlTorqueMotor(rd_, f_star, motor_inertia, motor_inertia_inv);
+        //Task_torque = WBC::TaskControlTorqueMotor(rd_, f_star, motor_inertia, motor_inertia_inv);
         Extra_torque = WBC::TaskControlTorqueExtra(rd_, f_star, motor_inertia, motor_inertia_inv);
         //Task_torque = WBC::TaskControlTorque(rd_, f_star);
         //Test_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Extra_torque, fc_ratio, 0);//0이 오른발
@@ -337,37 +342,54 @@ void CustomController::computeSlow()
     }
     else if (rd_.tc_.mode == 11)
     {
-         WBC::SetContact(rd_, 1, 1);
+      WBC::SetContact(rd_, 1, 1);
 
-        if (task_init)
+      if(initial_flag == 0)
+      {
+        walking_enable_ = true;
+        initial_flag = 1;
+        walking_tick_mj = 0;
+        walking_end_flag = 0;
+        cout << "init\n" << endl;
+      }
+
+      Gravity_torque = WBC::GravityCompensationTorque(rd_);
+      Total_torque = Gravity_torque;
+      rd_.torque_desired = Total_torque;
+    }
+    else if (rd_.tc_.mode == 12){
+      if (walking_enable_ == true)
+      {
+        if (walking_tick_mj == 0)
         {
-            rd_.link_[Upper_Body].rot_desired = Matrix3d::Identity();
-            
-            cout << "DSP1" << endl;
-            task_number = 6 + 3 + 6 + 6;
-            f_star.resize(task_number);
-            f_star.setZero();
-            rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
-            rd_.J_task.setZero();
-            task_time1 = 3.0;
+          task_number = 6 + 3; //com + upperbody orientation
+          f_star.resize(task_number);
+          f_star.setZero();
+          rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+          rd_.J_task.setZero();
+          rd_.link_[Pelvis].rot_desired = Matrix3d::Identity();
+          rd_.link_[Upper_Body].rot_desired = Matrix3d::Identity();
+          rd_.link_[Right_Foot].rot_desired = Matrix3d::Identity();
+          rd_.link_[Left_Foot].rot_desired = Matrix3d::Identity();
 
-            for (int i = 0; i < 3; ++i)
+          parameterSetting();
+          for (int i = 0; i < 3; ++i)
             {
-                //simulation-osf
-                Kp_com(i) = 400.0;
-                Kd_com(i) = 6.0; //40 60 100
-                Kp_com_rot(i) = 900.0;
-                Kd_com_rot(i) = 10.0;
-                Kp_ub(i) = 900.0;
-                Kd_ub(i) = 10.0;
-                Kp_hand(i) = 400.0;
+                //simulation-mosf
+                Kp_com(i) = 390.0;
+                Kd_com(i) = 5.0; //40 60 100
+                Kp_com_rot(i) = 500.0;
+                Kd_com_rot(i) = 50.0;
+                Kp_ub(i) = 500.0;
+                Kd_ub(i) = 50.0;
+                Kp_hand(i) = 100.0;
                 Kd_hand(i) = 5.0;
-                Kp_hand_rot(i) = 400.0;
+                Kp_hand_rot(i) = 100.0;
                 Kd_hand_rot(i) = 5.0;
-                Kp_foot(i) = 400.0;
-                Kd_foot(i) = 40.0;
-                Kp_foot_rot(i) = 100.0;
-                Kd_foot_rot(i) = 5.0;
+                Kp_foot(i) = 700.0;
+                Kd_foot(i) = 5.0;
+                Kp_foot_rot(i) = 400.0;
+                Kd_foot_rot(i) = 10.0;
             }
 
             rd_.link_[Right_Foot].SetGain(Kp_foot(0), Kd_foot(0), 0.0, Kp_foot_rot(0), Kd_foot_rot(0), 0.0);
@@ -377,77 +399,89 @@ void CustomController::computeSlow()
             rd_.link_[Pelvis].SetGain(Kp_com(0), Kd_com(0), 0.0, Kp_com_rot(0), Kd_com_rot(0), 0.0);
             rd_.link_[Upper_Body].SetGain(0.0, 0.0, 0.0, Kp_ub(0), Kd_ub(0), 0.0);
             rd_.link_[COM_id].SetGain(Kp_com(0), Kd_com(0), 0.0, Kp_com_rot(0), Kd_com_rot(0), 0.0);
-
-            COM_init = rd_.link_[Pelvis].xpos - rd_.link_[Right_Foot].xpos; //rd_.link_[Pelvis].xpos;//
-            RH_init = rd_.link_[Right_Hand].xpos - rd_.link_[Upper_Body].xpos;
-            LH_init = rd_.link_[Left_Hand].xpos - rd_.link_[Upper_Body].xpos;
-
-            rd_.link_[Pelvis].x_desired = COM_init;//
-            rd_.link_[Pelvis].x_desired(0) = COM_init(0) + rd_.tc_.l_x;//
-            rd_.link_[Pelvis].x_desired(1) = COM_init(1) + rd_.tc_.l_y;//               //rd_.link_[Pelvis].xpos(1) + tc.l_y;//
-            rd_.link_[Pelvis].x_desired(2) = COM_init(2) + rd_.tc_.l_z;//
-            rd_.link_[Pelvis].rot_desired = Matrix3d::Identity();
-
-            rd_.link_[Right_Hand].x_desired = RH_init;
-            rd_.link_[Right_Hand].rot_desired = rd_.link_[Upper_Body].rot_desired;
-            rd_.link_[Left_Hand].x_desired = LH_init;
-            rd_.link_[Left_Hand].rot_desired = rd_.link_[Upper_Body].rot_desired;
-
-            task_init = false;
+          
+          cout << "parameter setting OK" << endl;
+          cout << "mode = 12" << endl;
         }
+        walkingContactState();
+        updateInitialState();
+        getRobotState();
+        floatToSupportFootstep();
 
-        rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
-        rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
-        rd_.J_task.block(9, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Right_Hand].Jac();
-        rd_.J_task.block(15, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Left_Hand].Jac();
-
-        COM_pos_local = rd_.link_[Pelvis].xpos - rd_.link_[Right_Foot].xpos;
-        RH_pos_local = rd_.link_[Right_Hand].xpos - rd_.link_[Upper_Body].xpos;
-        LH_pos_local = rd_.link_[Left_Hand].xpos - rd_.link_[Upper_Body].xpos;
-        COM_vel_local = rd_.link_[Pelvis].v - rd_.link_[Right_Foot].v;
-        RH_vel_local = rd_.link_[Right_Hand].v - rd_.link_[Upper_Body].v;
-        LH_vel_local = rd_.link_[Left_Hand].v - rd_.link_[Upper_Body].v;
-
-        for (int i = 0; i < 3; ++i)
+        if (current_step_num_ < total_step_num_)
         {
-            rd_.link_[Pelvis].x_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, COM_init(i), 0.0, 0.0, rd_.link_[Pelvis].x_desired(i), 0.0, 0.0)(0);
-            rd_.link_[Pelvis].v_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, COM_init(i), 0.0, 0.0, rd_.link_[Pelvis].x_desired(i), 0.0, 0.0)(1);
+          //cout << total_step_num_ << endl;
+          getZmpTrajectory();
+          getComTrajectory();
+          getFootTrajectory();
+          getPelvTrajectory();
 
-            rd_.link_[Right_Hand].x_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, RH_init(i), 0.0, 0.0, RH_init(i), 0.0, 0.0)(0);
-            rd_.link_[Right_Hand].v_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, RH_init(i), 0.0, 0.0, RH_init(i), 0.0, 0.0)(1);
+          rd_.link_[Pelvis].SetTrajectoryRotation(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + 1.0);
+          rd_.link_[Upper_Body].SetTrajectoryRotation(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + 1.0);
 
-            rd_.link_[Left_Hand].x_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, LH_init(i), 0.0, 0.0, LH_init(i), 0.0, 0.0)(0);
-            rd_.link_[Left_Hand].v_traj(i) = DyrosMath::QuinticSpline(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + task_time1, LH_init(i), 0.0, 0.0, LH_init(i), 0.0, 0.0)(1);
+          // WBC::SetContact(rd_, 1, 1);
+          walkingFstarJacSet();
+          Eigen::VectorXd force;
+          Task_torque = WBC::TaskControlTorqueMotor(rd_, f_star, motor_inertia, motor_inertia_inv, force);
+          // Task_torque = WBC::TaskControlTorque(rd_, f_star);
+
+          Gravity_torque = WBC::GravityCompensationTorque(rd_);
+          ContactStateChangeTorque(); //Contact_torque 계산
+          Total_torque = Task_torque + Gravity_torque + Contact_torque;
+
+          //updateNextStepTime();
         }
-        rd_.link_[Pelvis].SetTrajectoryRotation(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + rd_.tc_.time);
-        rd_.link_[Upper_Body].SetTrajectoryRotation(rd_.control_time_, rd_.tc_time_, rd_.tc_time_ + rd_.tc_.time);
+        else
+        {
+          if (walking_end_flag == 0)
+          {
+            cout << "walking finish" << endl;
+            walking_end_flag = 1;
+            initial_flag = 0;
+          }
 
-        f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], rd_.link_[Pelvis].x_traj, COM_pos_local, rd_.link_[Pelvis].v_traj, COM_vel_local);
-        f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
-        f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
-        f_star.segment(9, 3) = WBC::GetFstarPosJS(rd_.link_[Right_Hand], rd_.link_[Right_Hand].x_traj, RH_pos_local, rd_.link_[Right_Hand].v_traj, RH_vel_local);
-        f_star.segment(12, 3) = WBC::GetFstarRot(rd_.link_[Right_Hand]);
-        f_star.segment(15, 3) = WBC::GetFstarPosJS(rd_.link_[Left_Hand], rd_.link_[Left_Hand].x_traj, LH_pos_local, rd_.link_[Left_Hand].v_traj, LH_vel_local);
-        f_star.segment(18, 3) = WBC::GetFstarRot(rd_.link_[Left_Hand]);
-// const clock_t begin_time = clock();
-        fc_ratio = 1.0;
-        
-        Gravity_torque = WBC::GravityCompensationTorque(rd_);
-        Extra_torque = WBC::TaskControlTorqueExtra(rd_, f_star, motor_inertia, motor_inertia_inv);
-        Task_torque = WBC::TaskControlTorque(rd_, f_star);
-        
-        //  file[0] << rd_.control_time_
-        //  << "\t" << Extra_torque(0) + Test_torque(0) << "\t" << Extra_torque(1) + Test_torque(1) << "\t" << Extra_torque(2) + Test_torque(2) << "\t" << Extra_torque(3) + Test_torque(3) 
-        //  << "\t" << Extra_torque(6) + Test_torque(6) << "\t" << Extra_torque(7) + Test_torque(7) << "\t" << Extra_torque(8) + Test_torque(8) << "\t" << Extra_torque(9) + Test_torque(9)
-        //  << endl;
-        
-        Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Task_torque + Gravity_torque + Extra_torque, fc_ratio, 0);//0이 오른발
-        
-        Total_torque = Gravity_torque + Task_torque + Contact_torque;
+          WBC::SetContact(rd_, 1, 1);
+          Gravity_torque = WBC::GravityCompensationTorque(rd_);
+          Total_torque = Gravity_torque;
+        }
+
         rd_.torque_desired = Total_torque;
-    }
-    else if (rd_.tc_.mode == 12){
+// if (walking_tick_mj >= t_start_ + t_rest_init_ + t_double1_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_ - t_double2_){
+        file[0] << walking_tick_mj// << "\t" << rd_.J_C.rows()
+                // << "\t" << t_start_ + t_total_ << "\t" << current_step_num_ << "\t" << t_step_change
+                //<< "\t" << force(6) << "\t" << force(7) << "\t" << force(8)
+                // << "\t" << force(9) << "\t" << force(10) << "\t" << force(11) << "\t" << force(12) << "\t" << force(13) << "\t" << force(14)
+                // << "\t" << step_error_before(0) << "\t" << step_error_before(1) << "\t" << step_error_before(2)
+                << "\t" << step_error_comp(0) << "\t" << step_error_comp(1) << "\t" << step_error_comp(2)
+                << "\t" << pelv_trajectory_support_.translation()(0) << "\t" << pelv_trajectory_support_.translation()(1) << "\t" << pelv_trajectory_support_.translation()(2)
+                // << "\t" << pelv_trajectory_support_.translation()(0) - step_error_comp(0) << "\t" << pelv_trajectory_support_.translation()(1) - step_error_comp(1) << "\t" << pelv_trajectory_support_.translation()(2) - step_error_comp(2)
+                << "\t" << pelv_support_current_.translation()(0) << "\t" << pelv_support_current_.translation()(1) << "\t" << pelv_support_current_.translation()(2)
+                << "\t" << lfoot_trajectory_support_.translation()(0) << "\t" << lfoot_trajectory_support_.translation()(1) << "\t" << lfoot_trajectory_support_.translation()(2)
+                << "\t" << lfoot_support_current_.translation()(0) << "\t" << lfoot_support_current_.translation()(1) << "\t" << lfoot_support_current_.translation()(2)
+                << "\t" << rfoot_trajectory_support_.translation()(0) << "\t" << rfoot_trajectory_support_.translation()(1) << "\t" << rfoot_trajectory_support_.translation()(2)
+                << "\t" << rfoot_support_current_.translation()(0) << "\t" << rfoot_support_current_.translation()(1) << "\t" << rfoot_support_current_.translation()(2)
+                << endl;
+        file[1] << walking_tick_mj
+                // << "\t" << Total_torque(0) << "\t" << Total_torque(1) << "\t" << Total_torque(2) << "\t" << Total_torque(3) << "\t" << Total_torque(4) << "\t" << Total_torque(5)
+                // << "\t" << Total_torque(6) << "\t" << Total_torque(7) << "\t" << Total_torque(8) << "\t" << Total_torque(9) << "\t" << Total_torque(10) << "\t" << Total_torque(11)
+                << "\t" << Contact_torque(0) << "\t" << Contact_torque(1) << "\t" << Contact_torque(2) << "\t" << Contact_torque(3) << "\t" << Contact_torque(4) << "\t" << Contact_torque(5)
+                << "\t" << Contact_torque(6) << "\t" << Contact_torque(7) << "\t" << Contact_torque(8) << "\t" << Contact_torque(9) << "\t" << Contact_torque(10) << "\t" << Contact_torque(11)
+                << endl;
+        if (current_step_num_ < total_step_num_)
+        {
+          updateNextStepTime();
+        }
+      }
+      else
+      {
+        if(walking_end_flag == 0)
+        {
+          cout << "walking finish" << endl;
+          walking_end_flag = 1; initial_flag = 0;        
+        } 
 
+        WBC::SetContact(rd_, 1, 1);
+      }
     }
     else if (rd_.tc_.mode == 13)
     {
@@ -456,7 +490,7 @@ void CustomController::computeSlow()
             //Initialize settings for Task Control! 
 
             rd_.tc_init = false;
-            std::cout<<"cc mode 11"<<std::endl;
+            std::cout<<"cc mode 13"<<std::endl;
 
             //rd_.link_[COM_id].x_desired = rd_.link_[COM_id].x_init;
         }
@@ -506,7 +540,7 @@ void CustomController::copyRobotData(RobotData &rd_l)
 
 void CustomController::parameterSetting()
 {
-    target_x_ = 0.0;
+    target_x_ = 10.0;
     target_y_ = 0.0;
     target_z_ = 0.0;
     com_height_ = 0.71;
@@ -573,32 +607,32 @@ void CustomController::updateInitialState()
     pelv_float_init_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Pelvis].xpos);
     //pelv_float_init_.translation()(0) += 0.11;
     
-    pelv_float_init_.translation()(0) = 0;
-    pelv_float_init_.translation()(1) = 0;
+    // pelv_float_init_.translation()(0) = 0;
+    // pelv_float_init_.translation()(1) = 0;
 
     lfoot_float_init_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * rd_.link_[Left_Foot].rotm;
     lfoot_float_init_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Left_Foot].xpos);  // 지면에서 Ankle frame 위치
     
-    lfoot_float_init_.translation()(0) = 0;
-    lfoot_float_init_.translation()(1) = 0.1225;
+    // lfoot_float_init_.translation()(0) = 0;
+    // lfoot_float_init_.translation()(1) = 0.1225;
 
     rfoot_float_init_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * rd_.link_[Right_Foot].rotm;
     rfoot_float_init_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Right_Foot].xpos); // 지면에서 Ankle frame
     
-    rfoot_float_init_.translation()(0) = 0;
-    rfoot_float_init_.translation()(1) = -0.1225;
+    // rfoot_float_init_.translation()(0) = 0;
+    // rfoot_float_init_.translation()(1) = -0.1225;
 
     com_float_init_ = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[COM_id].xpos); // 지면에서 CoM 위치   
     
-    com_float_init_(0) = 0;
-    com_float_init_(1) = 0;
+    // com_float_init_(0) = 0;
+    // com_float_init_(1) = 0;
 
-    if(aa == 0)
-    {
-      lfoot_float_init_.translation()(1) = 0.1025;
-      rfoot_float_init_.translation()(1) = -0.1025;
-      aa = 1;
-    }
+    // if(aa == 0)
+    // {
+    //   lfoot_float_init_.translation()(1) = 0.1025;
+    //   rfoot_float_init_.translation()(1) = -0.1025;
+    //   aa = 1;
+    // }
     cout << "First " << pelv_float_init_.translation()(0) << "," << lfoot_float_init_.translation()(0) << "," << rfoot_float_init_.translation()(0) << "," << pelv_rpy_current_(2)*180/3.141592 << endl;
     
     Eigen::Isometry3d ref_frame;
@@ -722,7 +756,6 @@ void CustomController::getRobotState()
   lfoot_rpy_current_.setZero();
   rfoot_rpy_current_ = DyrosMath::rot2Euler(rd_.link_[Right_Foot].rotm);  
   lfoot_rpy_current_ = DyrosMath::rot2Euler(rd_.link_[Left_Foot].rotm);
-
   rfoot_roll_rot_ = DyrosMath::rotateWithX(rfoot_rpy_current_(0));
   lfoot_roll_rot_ = DyrosMath::rotateWithX(lfoot_rpy_current_(0));
   rfoot_pitch_rot_ = DyrosMath::rotateWithY(rfoot_rpy_current_(1));
@@ -731,12 +764,20 @@ void CustomController::getRobotState()
   pelv_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * rd_.link_[Pelvis].rotm;
 
   pelv_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Pelvis].xpos);
-
-  lfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * DyrosMath::inverseIsometry3d(lfoot_pitch_rot_) * DyrosMath::inverseIsometry3d(lfoot_roll_rot_) * rd_.link_[Left_Foot].rotm; // 기울기 반영
-  lfoot_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Left_Foot].xpos);  // 지면에서 Ankle frame 위치
+  pelv_float_current_dot = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Pelvis].v); 
+  // lfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * DyrosMath::inverseIsometry3d(lfoot_pitch_rot_) * DyrosMath::inverseIsometry3d(lfoot_roll_rot_) * rd_.link_[Left_Foot].rotm; // 기울기 반영
+  // lfoot_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Left_Foot].xpos);  // 지면에서 Ankle frame 위치
   
-  rfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * DyrosMath::inverseIsometry3d(rfoot_pitch_rot_) * DyrosMath::inverseIsometry3d(rfoot_roll_rot_) * rd_.link_[Right_Foot].rotm; // 기울기 반영
+  // rfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * DyrosMath::inverseIsometry3d(rfoot_pitch_rot_) * DyrosMath::inverseIsometry3d(rfoot_roll_rot_) * rd_.link_[Right_Foot].rotm; // 기울기 반영
+  // rfoot_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Right_Foot].xpos); // 지면에서 Ankle frame
+
+  lfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * rd_.link_[Left_Foot].rotm; // 기울기 반영안함
+  lfoot_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Left_Foot].xpos);  // 지면에서 Ankle frame 위치
+  lfoot_float_current_dot = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Left_Foot].v); 
+  
+  rfoot_float_current_.linear() = DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_) * rd_.link_[Right_Foot].rotm; // 기울기 반영안함
   rfoot_float_current_.translation() = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Right_Foot].xpos); // 지면에서 Ankle frame
+  rfoot_float_current_dot = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[Right_Foot].v); 
    
   com_float_current_ = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[COM_id].xpos); // 지면에서 CoM 위치   
   com_float_current_dot = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(pelv_yaw_rot_current_from_global_),rd_.link_[COM_id].v); 
@@ -755,12 +796,12 @@ void CustomController::getRobotState()
   pelv_support_current_ = DyrosMath::inverseIsometry3d(supportfoot_float_current_) * pelv_float_current_;   
   lfoot_support_current_ = DyrosMath::inverseIsometry3d(supportfoot_float_current_) * lfoot_float_current_;
   rfoot_support_current_ = DyrosMath::inverseIsometry3d(supportfoot_float_current_) * rfoot_float_current_;
-     
-  com_support_current_ =  DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(supportfoot_float_current_), com_float_current_);  
+  
+  com_support_current_ =  DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(supportfoot_float_current_), com_float_current_);
   //com_support_current_LPF = DyrosMath::multiplyIsometry3dVector3d(DyrosMath::inverseIsometry3d(supportfoot_float_current_), com_float_current_LPF); // deleted by MJ (1025)
 
-  l_ft_ = rd_.LF_FT.segment(0, 6);
-  r_ft_ = rd_.RF_FT.segment(6, 6);
+  l_ft_ = rd_.LF_FT;
+  r_ft_ = rd_.RF_FT;
   
   if(walking_tick_mj == 0)
   { l_ft_LPF = l_ft_; r_ft_LPF = r_ft_; }
@@ -778,7 +819,7 @@ void CustomController::getRobotState()
 
   zmp_measured_(0) = (left_zmp(0) * l_ft_(2) + right_zmp(0) * r_ft_(2))/(l_ft_(2) + r_ft_(2)); // ZMP X
   zmp_measured_(1) = (left_zmp(1) * l_ft_(2) + right_zmp(1) * r_ft_(2))/(l_ft_(2) + r_ft_(2)); // ZMP Y
-  
+   
   wn = sqrt(GRAVITY/zc_);
   
   if(walking_tick_mj == 0)
@@ -1597,9 +1638,11 @@ void CustomController::getFootTrajectory()
       lfoot_trajectory_support_.linear() = DyrosMath::rotateWithZ(lfoot_trajectory_euler_support_(2))*DyrosMath::rotateWithY(F_T_L_y_input)*DyrosMath::rotateWithX(-F_T_L_x_input);
       
       if(walking_tick_mj < t_start_ + t_rest_init_ + t_double1_ + (t_total_ - t_rest_init_ - t_rest_last_ - t_double1_ - t_double2_)/2.0)
-      { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_+ t_rest_init_ + t_double1_ + t_rest_temp, t_start_real_ + t_double1_ + (t_total_ - t_rest_init_ - t_rest_last_ - t_double1_ - t_double2_)/2.0,0,foot_height_,0.0,0.0); }  
+      // { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_+ t_rest_init_ + t_double1_ + t_rest_temp, t_start_real_ + t_double1_ + (t_total_ - t_rest_init_ - t_rest_last_ - t_double1_ - t_double2_)/2.0,0,foot_height_,0.0,0.0); }  
+      { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_+ t_rest_init_ + t_double1_ + t_rest_temp, t_start_real_ + t_double1_ + (t_total_ - t_rest_init_ - t_rest_last_ - t_double1_ - t_double2_)/2.0,rfoot_support_init_.translation()(2),foot_height_,0.0,0.0); }  
       else
-      { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,target_swing_foot(2),0.0,0.0); }
+      // { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,target_swing_foot(2) - 0.005,0.0,0.0); }
+      { rfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,rfoot_support_init_.translation()(2),0.0,0.0); }
       
       for(int i=0; i<2; i++)  
       { rfoot_trajectory_support_.translation()(i) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + t_rest_temp, t_start_+t_total_-t_rest_last_-t_double2_, rfoot_support_init_.translation()(i),target_swing_foot(i),0.0,0.0); }
@@ -1616,9 +1659,11 @@ void CustomController::getFootTrajectory()
       rfoot_trajectory_support_.linear() = DyrosMath::rotateWithZ(rfoot_trajectory_euler_support_(2))*DyrosMath::rotateWithY(F_T_R_y_input)*DyrosMath::rotateWithX(-F_T_R_x_input);
  
       if(walking_tick_mj < t_start_ + t_rest_init_ + t_double1_ + (t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0)
-      { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + t_rest_temp, t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,0,foot_height_,0.0,0.0); }
+      // { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + t_rest_temp, t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,0,foot_height_,0.0,0.0); }
+      { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + t_rest_temp, t_start_real_+t_double1_+(t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,lfoot_support_init_.translation()(2),foot_height_,0.0,0.0); }
       else
-      { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + (t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,target_swing_foot(2),0.0,0.0); }
+      // { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + (t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,target_swing_foot(2) - 0.005,0.0,0.0); }
+      { lfoot_trajectory_support_.translation()(2) = DyrosMath::cubic(walking_tick_mj,t_start_real_ + t_double1_ + (t_total_-t_rest_init_-t_rest_last_-t_double1_-t_double2_)/2.0,t_start_+t_total_-t_rest_last_-t_double2_,foot_height_,lfoot_support_init_.translation()(2),0.0,0.0); }
          
       for(int i=0; i<2; i++)
       { lfoot_trajectory_support_.translation()(i) = DyrosMath::cubic(walking_tick_mj,t_start_real_+t_double1_ + t_rest_temp,t_start_+t_total_-t_rest_last_-t_double2_,lfoot_support_init_.translation()(i),target_swing_foot(i),0.0,0.0); }
@@ -1663,8 +1708,8 @@ void CustomController::getPelvTrajectory()
 {
   double z_rot = foot_step_support_frame_(current_step_num_,5);
   
-  pelv_trajectory_support_.translation()(0) = pelv_support_current_.translation()(0) + 0.7*(com_desired_(0) - 0.15*damping_x - com_support_current_(0));//- 0.01 * zmp_err_(0) * 0;
-  pelv_trajectory_support_.translation()(1) = pelv_support_current_.translation()(1) + 0.7*(com_desired_(1) - 0.6*damping_y - com_support_current_(1)) ;//- 0.01 * zmp_err_(1) * 0;
+  pelv_trajectory_support_.translation()(0) = pelv_support_current_.translation()(0) + 0.7*(com_desired_(0) - com_support_current_(0));//0.7*(com_desired_(0) - 0.15*damping_x - com_support_current_(0));//- 0.01 * zmp_err_(0) * 0;
+  pelv_trajectory_support_.translation()(1) = pelv_support_current_.translation()(1) + 0.7*(com_desired_(1) - com_support_current_(1));//0.7*(com_desired_(1) - 0.6*damping_y - com_support_current_(1)) ;//- 0.01 * zmp_err_(1) * 0;
   pelv_trajectory_support_.translation()(2) = com_desired_(2);
   // MJ_graph << com_desired_(0) << "," << com_support_current_(0) << "," << com_desired_(1) << "," << com_support_current_(1) << endl;
   Eigen::Vector3d Trunk_trajectory_euler;
@@ -1685,9 +1730,9 @@ void CustomController::getPelvTrajectory()
   P_angle_input = P_angle_input + P_angle_input_dot*del_t;
 
   if(P_angle_input > 0.05)
-  { P_angle_input = 0.05; cout << "a" << endl; }
+  { P_angle_input = 0.05; }
   else if(P_angle_input < -0.05)
-  { P_angle_input = -0.05; cout << "b" << endl;}
+  { P_angle_input = -0.05; }
 
   Trunk_trajectory_euler(1) = P_angle_input;
 
@@ -2028,5 +2073,193 @@ void CustomController::calculateFootStepTotal_MJ()
       foot_step_(index,6) = 0.5 + 0.5*temp3;
       index++;
     }
+  }
+
+  //std::cout << "footstep: " << foot_step_ << std::endl;
+}
+
+void CustomController::walkingContactState()
+{
+  if (walking_tick_mj < t_start_ + t_rest_init_) //DSP
+  {
+    WBC::SetContact(rd_, 1, 1);
+  }
+  else if (walking_tick_mj >= t_start_ + t_rest_init_ && walking_tick_mj < t_start_ + t_rest_init_ + t_double1_) // 0.03 s  DSP
+  {
+    WBC::SetContact(rd_, 1, 1);
+  }
+  else if (walking_tick_mj >= t_start_ + t_rest_init_ + t_double1_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_ - t_double2_) // SSP
+  {
+    if (foot_step_(current_step_num_, 6) == 1) // 왼발 지지
+    {
+      WBC::SetContact(rd_, 1, 0);
+    }
+    else if (foot_step_(current_step_num_, 6) == 0) // 오른발 지지
+    {
+      WBC::SetContact(rd_, 0, 1);
+    }
+  }
+  else if (walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ - t_double2_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_) //DSP
+  {
+    WBC::SetContact(rd_, 1, 1);
+  }
+  else if (walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ && walking_tick_mj < t_start_ + t_total_) //DSP
+  {
+    WBC::SetContact(rd_, 1, 1);
+  }
+}
+
+void CustomController::ContactStateChangeTorque()
+{
+  double contact_gain = 0.0;
+   
+  if(walking_tick_mj < t_start_ + t_rest_init_ )
+  {
+    contact_gain = 1.0;
+    if(foot_step_(current_step_num_,6) == 1) // 왼발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 1); }
+    else if(foot_step_(current_step_num_,6) == 0) // 오른발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 0); }  
+  }
+  else if(walking_tick_mj >= t_start_ + t_rest_init_ && walking_tick_mj < t_start_ + t_rest_init_ + t_double1_ ) // 0.03 s  
+  {
+    contact_gain = DyrosMath::cubic(walking_tick_mj, t_start_ + t_rest_init_, t_start_ + t_rest_init_ + t_double1_, 1.0, 0.0, 0.0, 0.0);
+    if(foot_step_(current_step_num_,6) == 1) // 왼발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 1); }
+    else if(foot_step_(current_step_num_,6) == 0) // 오른발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 0); }
+  }
+  else if(walking_tick_mj >= t_start_ + t_rest_init_ + t_double1_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_ - t_double2_) // SSP
+  {
+    Contact_torque.setZero();
+  }
+  else if(walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ - t_double2_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_)
+  // else if(walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ - t_double2_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_ - t_double2_ + 20)
+  {
+    contact_gain = DyrosMath::cubic(walking_tick_mj, t_start_ + t_total_ - t_rest_last_ - t_double2_ , t_start_ + t_total_ - t_rest_last_ , 0.0, 1.0, 0.0, 0.0);
+    // contact_gain = DyrosMath::cubic(walking_tick_mj, t_start_ + t_total_ - t_rest_last_ - t_double2_ , t_start_ + t_total_ - t_rest_last_ - t_double2_ + 20 , 0.0, 1.0, 0.0, 0.0);
+    if(foot_step_(current_step_num_,6) == 1) // 왼발 지지
+    {   
+      Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 1);           
+    }
+    else if(foot_step_(current_step_num_,6) == 0) // 오른발 지지
+    {
+      Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, contact_gain, 0);
+    }    
+  }
+  else if(walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ && walking_tick_mj < t_start_ + t_total_)
+  {
+    if(foot_step_(current_step_num_,6) == 1) // 왼발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, 1.0, 1); }
+    else if(foot_step_(current_step_num_,6) == 0) // 오른발 지지
+    { Contact_torque = WBC::ContactForceRedistributionTorqueJS(rd_, Gravity_torque + Task_torque, 1.0, 0); }
+  }
+}
+
+void CustomController::walkingFstarJacSet()
+{
+  if (walking_tick_mj == t_start_ + t_total_ - 2)
+  {
+    t_step_change = t_start_ + t_total_;
+  }
+  if (walking_tick_mj == t_step_change - 1)
+  {
+    step_error_before = pelv_trajectory_support_.translation() - pelv_support_current_.translation();
+  }
+
+  if (walking_tick_mj == t_step_change)
+  {
+    step_error_after = pelv_trajectory_support_.translation() - pelv_support_current_.translation();
+    step_error_comp += step_error_after - step_error_before;
+  }
+
+  if (walking_tick_mj < t_start_ + t_rest_init_) //DSP
+  {
+    task_number = 6 + 3; //com + upperbody orientation
+    rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+    rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+    rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+
+    f_star.resize(task_number);
+    rd_.link_[Pelvis].v_traj.setZero();
+    f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+    f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+    f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
+  }
+  else if (walking_tick_mj >= t_start_ + t_rest_init_ && walking_tick_mj < t_start_ + t_rest_init_ + t_double1_) // 0.03 s  DSP
+  {
+    task_number = 6 + 3; //com + upperbody orientation
+    rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+    rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+    rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+
+    f_star.resize(task_number);
+    rd_.link_[Pelvis].v_traj.setZero();
+    f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+    f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+    f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
+  }
+  else if (walking_tick_mj >= t_start_ + t_rest_init_ + t_double1_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_ - t_double2_) // SSP
+  {
+    task_number = 6 + 3 + 6; //com + upperbody orientation + leg
+    rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+    if (foot_step_(current_step_num_, 6) == 1) // 왼발 지지
+    {
+      rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+      rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+      rd_.J_task.block(9, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Right_Foot].Jac();
+
+      f_star.resize(task_number);
+      f_star.setZero();
+      rd_.link_[Pelvis].v_traj.setZero();
+      rd_.link_[Right_Foot].v_traj.setZero();
+      f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+      f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+      f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
+      f_star.segment(9, 3) = WBC::GetFstarPosJS(rd_.link_[Right_Foot], rfoot_trajectory_support_.translation(), rfoot_support_current_.translation(), rd_.link_[Right_Foot].v_traj, rfoot_float_current_dot);
+      f_star.segment(12,3) = WBC::GetFstarRot(rd_.link_[Right_Foot]);
+    }
+    else if (foot_step_(current_step_num_, 6) == 0) // 오른발 지지
+    {
+      rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+      rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+      rd_.J_task.block(9, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Left_Foot].Jac();
+
+      f_star.resize(task_number);
+      f_star.setZero();
+      rd_.link_[Pelvis].v_traj.setZero();
+      rd_.link_[Left_Foot].v_traj.setZero();
+      f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+      f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+      f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
+      f_star.segment(9, 3) = WBC::GetFstarPosJS(rd_.link_[Left_Foot], lfoot_trajectory_support_.translation(), lfoot_support_current_.translation(), rd_.link_[Left_Foot].v_traj, lfoot_float_current_dot);
+      f_star.segment(12,3) = WBC::GetFstarRot(rd_.link_[Left_Foot]);
+    }
+  }
+  else if (walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ - t_double2_ && walking_tick_mj < t_start_ + t_total_ - t_rest_last_) //DSP
+  {
+    task_number = 6 + 3; //com + upperbody orientation
+    rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+    rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+    rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+
+    f_star.resize(task_number);
+    rd_.link_[Pelvis].v_traj.setZero();
+    f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+    f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+    f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
+  }
+  else if (walking_tick_mj >= t_start_ + t_total_ - t_rest_last_ && walking_tick_mj < t_start_ + t_total_) //DSP
+  {
+    task_number = 6 + 3; //com + upperbody orientation
+    rd_.J_task.resize(task_number, MODEL_DOF_VIRTUAL);
+    rd_.J_task.block(0, 0, 6, MODEL_DOF_VIRTUAL) = rd_.link_[Pelvis].Jac();
+    rd_.J_task.block(6, 0, 3, MODEL_DOF_VIRTUAL) = rd_.link_[Upper_Body].Jac().block(3, 0, 3, MODEL_DOF_VIRTUAL);
+    
+    f_star.resize(task_number);
+    rd_.link_[Pelvis].v_traj.setZero();
+    f_star.segment(0, 3) = WBC::GetFstarPosJS(rd_.link_[Pelvis], pelv_trajectory_support_.translation() - step_error_comp, pelv_support_current_.translation(), rd_.link_[Pelvis].v_traj, pelv_float_current_dot);
+    f_star.segment(3, 3) = WBC::GetFstarRot(rd_.link_[Pelvis]);
+    f_star.segment(6, 3) = WBC::GetFstarRot(rd_.link_[Upper_Body]);
   }
 }
