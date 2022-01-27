@@ -488,7 +488,11 @@ void CustomController::computeSlow()
         if (rd_.tc_init)
         {
             //Initialize settings for Task Control! 
-
+            //"merging test!!!!!!!!!!!!!!11"
+            //"merging test!!!!!!!!!!!!!!11"
+            //"merging test!!!!!!!!!!!!!!11"
+            //"merging test!!!!!!!!!!!!!!11"
+            //"merging test!!!!!!!!!!!!!!11"
             rd_.tc_init = false;
             std::cout<<"cc mode 13"<<std::endl;
 
