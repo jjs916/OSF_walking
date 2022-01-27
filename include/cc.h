@@ -23,7 +23,7 @@ public:
         "../jjs_data/LH.txt",
         "../jjs_data/Joint.txt",
         "../jjs_data/walking.txt",
-        "../jjs_data/walking_vel.txt",
+        "../jjs_data/torque.txt",
         "../jjs_data/common.txt"
     };
     ofstream file[6];
@@ -51,6 +51,9 @@ public:
     void getFootTrajectory();
     void getPelvTrajectory();
     void updateNextStepTime();
+    void walkingContactState();
+    void walkingFstarJacSet();
+    void ContactStateChangeTorque();
     ////////////////////////////////////////////////////////////////////////////
     //WholebodyController &wbc_;
     //TaskCommand tc;
@@ -60,7 +63,9 @@ public:
     double aa = 0;
     double del_t = 0.0005;
     bool walking_enable_ ;
+    unsigned int initial_flag = 0;
     double wn = 0;
+    double walking_end_flag = 0;
 
     double target_x_;
     double target_y_;
@@ -81,6 +86,7 @@ public:
     double t_start_real_;
     double current_step_num_;
     double foot_height_; // 실험 제자리 0.04 , 전진 0.05 시뮬 0.04
+    double t_step_change; // 지지발 바꿀때의 walkingtick
 
     Eigen::Vector3d pelv_rpy_current_;
     Eigen::Isometry3d pelv_yaw_rot_current_from_global_;
@@ -205,6 +211,15 @@ public:
 
     double xi_;
     double yi_;
+
+    Eigen::Vector3d pelv_float_current_dot;
+    Eigen::Vector3d rfoot_float_current_dot;
+    Eigen::Vector3d lfoot_float_current_dot;
+    Eigen::Vector3d rfoot_support_current_dot;
+    Eigen::Vector3d lfoot_support_current_dot;
+    Eigen::Vector3d step_error_before;
+    Eigen::Vector3d step_error_after;
+    Eigen::Vector3d step_error_comp;
     /////////////////////////////////////////////////////////////////////////////////////////////
 
 private:
