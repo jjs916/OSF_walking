@@ -220,8 +220,18 @@ public:
     Eigen::Vector3d step_error_before;
     Eigen::Vector3d step_error_after;
     Eigen::Vector3d step_error_comp;
+    Eigen::Isometry3d lfoot_support_traj_init_;
+    Eigen::Isometry3d rfoot_support_traj_init_;
+    double left_r,left_p,left_y;
+    double right_r,right_p,right_y;
+    double lr,lp,ly;
+    double rr,rp,ry;
     /////////////////////////////////////////////////////////////////////////////////////////////
-
+    Eigen::Isometry3d current_lfoot_control;
+    Eigen::Isometry3d current_rfoot_control;
+    /////////////////////////////////////////////////////////////////////////////////////////////
+    int contactcheck = 0; //DSP = 0, SSP_leftsupport = 1, SSP_rightsupport = 2
+    int CF_distributioncheck = 0; //DSP_original = 0, DSP_leftsupport = 1, DSP_rightsupport = 2
 private:
 //control variables
     bool task_init;
